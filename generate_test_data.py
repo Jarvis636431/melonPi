@@ -14,10 +14,15 @@
 """
 
 import os
+import time
 import numpy as np
 import soundfile as sf
 from tqdm import tqdm
 import random
+import psutil
+from config_manager import config_manager
+from logger_setup import LoggerSetup, PerformanceLogger, setup_logger
+from performance_monitor import monitor_performance, PerformanceMonitor
 
 
 class TestDataGenerator:
@@ -25,7 +30,7 @@ class TestDataGenerator:
     测试数据生成器
     """
     
-    def __init__(self, data_dir: str = 'data', sample_rate: int = 22050, duration: float = 3.0):
+    def __init__(self, data_dir: str = None, sample_rate: int = None, duration: float = None):
         """
         初始化生成器
         
@@ -34,14 +39,35 @@ class TestDataGenerator:
             sample_rate: 采样率
             duration: 音频时长（秒）
         """
-        self.data_dir = data_dir
-        self.sample_rate = sample_rate
-        self.duration = duration
-        self.num_samples = int(sample_rate * duration)
+        # 从配置文件获取默认值
+        self.data_dir = data_dir or config_manager.get('data.data_dir', 'data')
+        self.sample_rate = sample_rate or config_manager.get('audio.sample_rate', 22050)
+        self.duration = duration or config_manager.get('audio.duration', 3.0)
+        self.num_samples = int(self.sample_rate * self.duration)
+        
+        # 初始化日志器
+        self.logger = LoggerSetup.get_logger('data_generator')
+        self.performance_logger = PerformanceLogger()
+        
+        # 记录内存使用情况
+        memory_monitor = PerformanceMonitor()
+        memory_info = memory_monitor.get_memory_usage()
+        self.logger.info(f"初始化数据生成器 - 内存使用: {memory_info['memory_percent']:.1f}%")
+        
+        self.logger.info(f"数据生成器配置 - 目录: {self.data_dir}, 采样率: {self.sample_rate}, 时长: {self.duration}s")
+        
+        # 从配置文件获取类别信息
+        self.categories = config_manager.get('frequency_categories', {
+            'low_freq': {'name': 'low_freq'},
+            'mid_freq': {'name': 'mid_freq'},
+            'high_freq': {'name': 'high_freq'}
+        })
         
         # 确保目录存在
-        for category in ['low_freq', 'mid_freq', 'high_freq']:
-            os.makedirs(os.path.join(data_dir, category), exist_ok=True)
+        for category in self.categories.keys():
+            category_path = os.path.join(self.data_dir, category)
+            os.makedirs(category_path, exist_ok=True)
+            self.logger.debug(f"创建目录: {category_path}")
     
     def generate_sine_wave(self, frequency: float, amplitude: float = 0.5, phase: float = 0) -> np.ndarray:
         """
@@ -140,16 +166,27 @@ class TestDataGenerator:
         wave = 0.5 * np.sin(phase)
         return wave
     
-    def generate_low_freq_samples(self, num_samples: int = 20) -> None:
+    @monitor_performance
+    def generate_low_freq_samples(self, num_samples: int = None) -> None:
         """
         生成低频样本
         
         Args:
             num_samples: 样本数量
         """
+        # 从配置文件获取样本数量
+        if num_samples is None:
+            num_samples = config_manager.get('test_data_generation.samples_per_category', 20)
+        
+        self.logger.info(f"开始生成低频样本 - 数量: {num_samples}")
         print("生成低频样本...")
         
-        frequencies = [100, 150, 200, 250, 300, 400, 500, 600, 700, 800, 900]
+        # 从配置文件获取频率范围
+        low_freq_config = config_manager.get('frequency_categories.low_freq', {})
+        frequencies = low_freq_config.get('test_frequencies', [100, 150, 200, 250, 300, 400, 500, 600, 700, 800, 900])
+        self.logger.debug(f"低频测试频率: {frequencies}")
+        
+        generated_files = []
         
         for i in tqdm(range(num_samples), desc="低频样本"):
             # 选择主频率
@@ -182,17 +219,40 @@ class TestDataGenerator:
             # 保存文件
             filepath = os.path.join(self.data_dir, 'low_freq', filename)
             sf.write(filepath, wave, self.sample_rate)
+            generated_files.append(filename)
+            self.logger.debug(f"保存低频样本: {filename}")
+        
+        # 记录生成结果
+        self.logger.info(f"低频样本生成完成 - 共生成 {len(generated_files)} 个文件")
+        self.performance_logger.log_performance({
+            'operation': 'generate_low_freq_samples',
+            'samples_generated': len(generated_files),
+            'frequency_range': f"{min(frequencies)}-{max(frequencies)}Hz",
+            'sample_rate': self.sample_rate,
+            'duration': self.duration
+        })
     
-    def generate_mid_freq_samples(self, num_samples: int = 20) -> None:
+    @monitor_performance
+    def generate_mid_freq_samples(self, num_samples: int = None) -> None:
         """
         生成中频样本
         
         Args:
             num_samples: 样本数量
         """
+        # 从配置文件获取样本数量
+        if num_samples is None:
+            num_samples = config_manager.get('test_data_generation.samples_per_category', 20)
+        
+        self.logger.info(f"开始生成中频样本 - 数量: {num_samples}")
         print("生成中频样本...")
         
-        frequencies = [1000, 1200, 1500, 1800, 2000, 2200, 2500, 2800, 3000, 3200, 3500, 3800]
+        # 从配置文件获取频率范围
+        mid_freq_config = config_manager.get('frequency_categories.mid_freq', {})
+        frequencies = mid_freq_config.get('test_frequencies', [1000, 1200, 1500, 1800, 2000, 2200, 2500, 2800, 3000, 3200, 3500, 3800])
+        self.logger.debug(f"中频测试频率: {frequencies}")
+        
+        generated_files = []
         
         for i in tqdm(range(num_samples), desc="中频样本"):
             # 选择主频率
@@ -231,19 +291,42 @@ class TestDataGenerator:
             wave = self.apply_envelope(wave)
             
             # 保存文件
-            filepath = os.path.join(self.data_dir, 'mid_freq', filename)
+            filepath = os.path.join(self.data_dir, 'high_freq', filename)
             sf.write(filepath, wave, self.sample_rate)
+            generated_files.append(filename)
+            self.logger.debug(f"保存高频样本: {filename}")
+        
+        # 记录生成结果
+        self.logger.info(f"高频样本生成完成 - 共生成 {len(generated_files)} 个文件")
+        self.performance_logger.log_performance({
+             'operation': 'generate_high_freq_samples',
+             'samples_generated': len(generated_files),
+             'frequency_range': f"{min(frequencies)}-{max(frequencies)}Hz",
+             'sample_rate': self.sample_rate,
+             'duration': self.duration
+         })
     
-    def generate_high_freq_samples(self, num_samples: int = 20) -> None:
+    @monitor_performance
+    def generate_high_freq_samples(self, num_samples: int = None) -> None:
         """
         生成高频样本
         
         Args:
             num_samples: 样本数量
         """
+        # 从配置文件获取样本数量
+        if num_samples is None:
+            num_samples = config_manager.get('test_data_generation.samples_per_category', 20)
+        
+        self.logger.info(f"开始生成高频样本 - 数量: {num_samples}")
         print("生成高频样本...")
         
-        frequencies = [4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500, 8000, 8500, 9000, 9500, 10000]
+        # 从配置文件获取频率范围
+        high_freq_config = config_manager.get('frequency_categories.high_freq', {})
+        frequencies = high_freq_config.get('test_frequencies', [4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500, 8000, 8500, 9000, 9500, 10000])
+        self.logger.debug(f"高频测试频率: {frequencies}")
+        
+        generated_files = []
         
         for i in tqdm(range(num_samples), desc="高频样本"):
             # 选择主频率
@@ -280,13 +363,19 @@ class TestDataGenerator:
             filepath = os.path.join(self.data_dir, 'high_freq', filename)
             sf.write(filepath, wave, self.sample_rate)
     
-    def generate_all_samples(self, samples_per_category: int = 20) -> None:
+    @monitor_performance
+    def generate_all_samples(self, samples_per_category: int = None) -> None:
         """
         生成所有类别的样本
         
         Args:
             samples_per_category: 每个类别的样本数量
         """
+        # 从配置文件获取样本数量
+        if samples_per_category is None:
+            samples_per_category = config_manager.get('test_data_generation.samples_per_category', 20)
+        
+        self.logger.info(f"开始生成所有类别的测试数据 - 每个类别 {samples_per_category} 个样本")
         print(f"开始生成测试数据，每个类别 {samples_per_category} 个样本")
         print(f"采样率: {self.sample_rate} Hz")
         print(f"音频时长: {self.duration} 秒")
@@ -301,25 +390,52 @@ class TestDataGenerator:
         print(f"数据保存在: {self.data_dir}")
         
         # 统计生成的文件
+        total_files = 0
+        category_stats = {}
         for category in ['low_freq', 'mid_freq', 'high_freq']:
             category_path = os.path.join(self.data_dir, category)
             files = [f for f in os.listdir(category_path) if f.endswith('.wav')]
-            print(f"  {category}: {len(files)} 个文件")
+            file_count = len(files)
+            total_files += file_count
+            category_stats[category] = file_count
+            print(f"  {category}: {file_count} 个文件")
+            self.logger.debug(f"{category}目录: {file_count} 个文件")
+        
+        self.logger.info(f"测试数据生成完成 - 总共生成 {total_files} 个文件")
+        
+        # 记录性能信息
+        self.performance_logger.log_performance({
+            'operation': 'generate_all_samples',
+            'total_files_generated': total_files,
+            'samples_per_category': samples_per_category,
+            'categories': category_stats,
+            'sample_rate': self.sample_rate,
+            'duration': self.duration
+        })
 
 
 def main():
     """
     主函数
     """
+    # 初始化日志系统
+    logger = setup_logger('test_data_generator')
+    performance_logger = PerformanceLogger('test_data_generation')
+    
+    logger.info("启动音频测试数据生成器")
+    logger.info(f"内存使用情况: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+    
     print("=" * 60)
     print("音频测试数据生成器")
     print("=" * 60)
     
-    # 配置参数
-    data_dir = 'data'
-    samples_per_category = 25  # 每个类别生成25个样本
-    sample_rate = 22050
-    duration = 3.0
+    # 从配置文件获取参数
+    data_dir = config_manager.get('paths.data_dir', 'data')
+    samples_per_category = config_manager.get('test_data_generation.samples_per_category', 25)
+    sample_rate = config_manager.get('audio.sample_rate', 22050)
+    duration = config_manager.get('audio.duration', 3.0)
+    
+    logger.info(f"配置参数 - 数据目录: {data_dir}, 每类样本数: {samples_per_category}, 采样率: {sample_rate}, 时长: {duration}s")
     
     # 检查是否覆盖现有数据
     existing_files = []
@@ -328,32 +444,77 @@ def main():
         if os.path.exists(category_path):
             files = [f for f in os.listdir(category_path) if f.endswith('.wav')]
             existing_files.extend(files)
+            logger.debug(f"发现 {category} 目录中有 {len(files)} 个现有文件")
     
     if existing_files:
+        logger.warning(f"发现 {len(existing_files)} 个现有音频文件")
         print(f"警告: 发现 {len(existing_files)} 个现有音频文件")
         response = input("是否继续生成新数据？这将添加到现有数据中 (y/n): ")
         if response.lower() != 'y':
+            logger.info("用户取消操作")
             print("操作已取消")
             return
+        else:
+            logger.info("用户选择继续生成数据")
+    else:
+        logger.info("未发现现有数据文件，开始生成新数据")
     
     # 创建生成器
-    generator = TestDataGenerator(
-        data_dir=data_dir,
-        sample_rate=sample_rate,
-        duration=duration
-    )
+    logger.info("初始化测试数据生成器")
+    try:
+        generator = TestDataGenerator(
+            data_dir=data_dir,
+            sample_rate=sample_rate,
+            duration=duration
+        )
+        logger.info("测试数据生成器初始化成功")
+    except Exception as e:
+        logger.error(f"生成器初始化失败: {e}")
+        print(f"生成器初始化失败: {e}")
+        return
     
     # 生成数据
+    start_time = time.time()
     try:
+        logger.info(f"开始生成测试数据 - 每类 {samples_per_category} 个样本")
         generator.generate_all_samples(samples_per_category)
+        
+        generation_time = time.time() - start_time
+        logger.info(f"数据生成完成，耗时: {generation_time:.2f}秒")
         
         print("\n生成完成！现在可以运行以下命令训练模型:")
         print("python train_model.py")
         
+        # 记录会话性能
+        performance_logger.log_performance({
+            'operation': 'main_session',
+            'total_generation_time': generation_time,
+            'samples_per_category': samples_per_category,
+            'total_categories': 3,
+            'sample_rate': sample_rate,
+            'duration': duration,
+            'status': 'completed'
+        })
+        
     except KeyboardInterrupt:
+        logger.warning("用户中断操作")
         print("\n操作已中断")
+        performance_logger.log_performance({
+            'operation': 'main_session',
+            'status': 'interrupted_by_user',
+            'samples_per_category': samples_per_category
+        })
     except Exception as e:
+        logger.error(f"生成过程中出现错误: {e}", exc_info=True)
         print(f"\n生成过程中出现错误: {e}")
+        performance_logger.log_performance({
+            'operation': 'main_session',
+            'status': 'error',
+            'error_message': str(e),
+            'samples_per_category': samples_per_category
+        })
+    finally:
+        logger.info("测试数据生成器会话结束")
 
 
 if __name__ == '__main__':

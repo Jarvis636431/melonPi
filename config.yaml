@@ -1,0 +1,95 @@
+# 音频频率分类系统配置文件
+
+# 音频处理配置
+audio:
+  sample_rate: 22050      # 采样率
+  duration: 3.0           # 音频时长（秒）
+  n_mfcc: 13             # MFCC特征维数
+  n_fft: 2048            # FFT窗口大小
+  hop_length: 512        # 跳跃长度
+  channels: 1            # 声道数（单声道）
+
+# 机器学习模型配置
+model:
+  algorithm: "RandomForest"  # 算法类型
+  n_estimators: 100         # 树的数量
+  max_depth: 10            # 最大深度
+  min_samples_split: 2     # 最小分割样本数
+  min_samples_leaf: 1      # 叶节点最小样本数
+  random_state: 42         # 随机种子
+  n_jobs: -1              # 并行作业数
+
+# 超参数优化配置
+hyperparameter_tuning:
+  enabled: true
+  cv_folds: 5             # 交叉验证折数
+  param_grid:
+    n_estimators: [50, 100, 200]
+    max_depth: [5, 10, 15, null]
+    min_samples_split: [2, 5, 10]
+
+# 数据配置
+data:
+  data_dir: "data"        # 数据目录
+  model_dir: "model"      # 模型保存目录
+  test_size: 0.2          # 测试集比例
+  include_additional_features: true  # 是否包含额外特征
+  supported_formats: ["wav", "mp3", "flac", "m4a"]  # 支持的音频格式
+
+# 频率分类标准
+frequency_categories:
+  low_freq:
+    range: [0, 1000]      # Hz
+    description: "低频音频"
+  mid_freq:
+    range: [1000, 4000]   # Hz
+    description: "中频音频"
+  high_freq:
+    range: [4000, 20000]  # Hz
+    description: "高频音频"
+
+# 日志配置
+logging:
+  level: "INFO"           # 日志级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file_handler:
+    enabled: true
+    filename: "logs/audio_classifier.log"
+    max_bytes: 10485760   # 10MB
+    backup_count: 5
+  console_handler:
+    enabled: true
+
+# 性能监控配置
+performance:
+  monitoring_enabled: true
+  metrics:
+    - "inference_time"     # 推理时间
+    - "feature_extraction_time"  # 特征提取时间
+    - "model_loading_time"  # 模型加载时间
+    - "audio_recording_time"  # 录音时间
+  save_metrics: true
+  metrics_file: "logs/performance_metrics.json"
+
+# 树莓派推理配置
+raspberry_pi:
+  device_check: true      # 是否检查音频设备
+  continuous_mode: true   # 连续推理模式
+  inference_interval: 1.0 # 推理间隔（秒）
+  confidence_threshold: 0.7  # 置信度阈值
+
+# 可视化配置
+visualization:
+  save_plots: true
+  plot_dir: "plots"
+  dpi: 300
+  figsize: [10, 8]
+
+# 测试数据生成配置
+test_data_generation:
+  samples_per_category: 50  # 每个类别生成的样本数
+  noise_levels: [0.0, 0.1, 0.2]  # 噪声级别
+  frequency_ranges:
+    low_freq: [100, 800]
+    mid_freq: [1200, 3500]
+    high_freq: [5000, 15000]
